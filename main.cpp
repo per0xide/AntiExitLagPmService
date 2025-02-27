@@ -28,7 +28,7 @@ bool ClosePmService()
 	TCHAR szProcessName[MAX_PATH];
 
 	if (!EnumProcesses(procs, sizeof(procs), &bytesReturned))
-		ThrowMessage("Couldn't enumerate list of process identifiers"s);
+		ThrowMessage("ERROR: Couldn't enumerate list of process identifiers"s);
 
 	numProcesses = bytesReturned / sizeof(DWORD);
 
@@ -78,13 +78,13 @@ bool ClosePmService()
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 {
 	/* Close FuckPresentMon after closing the PresentMon service 1 time, good if you never relaunch ExitLag before computer shutdown */
-	if (strcmp(pCmdLine, "--autoclose") == 0 || IsDebuggerPresent())
+	if (strcmp(pCmdLine, "--autoclose") == 0 /* || IsDebuggerPresent() */ )
 	{
 		bAutoClose = true;
 		ThrowMessage("Running with autoclose flag or debugger present");
 	}
 
-	if (strcmp(pCmdLine, "--silent"))
+	if (strcmp(pCmdLine, "--silent") == 0)
 		bSilentMode = true;
 
 	/* Give ExitLag and the gay ahh service some time to start(when running this on startup) */ 
@@ -93,7 +93,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine,
 	while (true)
 	{
 		if (ClosePmService())
-			ThrowMessage("Closed ExitLag PresentMon service!");
+			ThrowMessage("Terminated ExitLagPmService.exe");
 
 		if (bAutoClose && bHasClosedOnce)
 			break;
