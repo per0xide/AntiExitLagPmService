@@ -4,88 +4,80 @@
 #include <thread>
 
 #include "Windows.h"
-#include "Psapi.h"
+#include "TlHelp32.h"
 
 using namespace std::string_literals;
 using namespace std::chrono_literals;
 
 bool bAutoClose = false;
-bool bSilentMode = false;
+bool bDebugMode = false;
 bool bHasClosedOnce = false;
 
-int ThrowMessage(const std::string& msg)
+int DebugMessage(const std::string& msg)
 {
-	if (bSilentMode)
-		return 1;
-
-	return MessageBoxA(nullptr, msg.c_str(), "Message", MB_OK);
+	if (bDebugMode)
+        return MessageBoxA(nullptr, msg.c_str(), "Debug", MB_OK);
 }
 
 bool ClosePmService()
 {
-	int pid = 0;
-	DWORD procs[1024], bytesReturned, numProcesses;
-	TCHAR szProcessName[MAX_PATH];
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE)
+        return false;
 
-	if (!EnumProcesses(procs, sizeof(procs), &bytesReturned))
-		ThrowMessage("ERROR: Couldn't enumerate list of process identifiers"s);
+    PROCESSENTRY32W procEntry{};
+    procEntry.dwSize = sizeof(procEntry);
 
-	numProcesses = bytesReturned / sizeof(DWORD);
+    if (!Process32FirstW(snapshot, &procEntry))
+    {
+        CloseHandle(snapshot);
+        return false;
+    }
 
-	for (int i = 0; i < numProcesses; i++)
-	{
-		if (procs[i] != 0)
-		{
-			// Get a handle to the current process in our iteration
-			HANDLE handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_TERMINATE, FALSE, procs[i]);
+    do
+    {
+        if (L"ExitLagPmService.exe"s == procEntry.szExeFile)
+        {
+            HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, procEntry.th32ProcessID);
 
-			if (handle == NULL)
-				continue;
-				
-			HMODULE module;
-			
-			if (EnumProcessModules(handle, &module, sizeof(module), &bytesReturned))
-			{
-				if (!GetModuleBaseName(handle, module, szProcessName, sizeof(szProcessName) / sizeof(TCHAR)))
-					ThrowMessage("ERROR: Failed to get process name");
+            if (hProcess)
+            {
+                if (!TerminateProcess(hProcess, 0))
+                    return false;
 
-				if (strcmp(szProcessName, "ExitLagPmService.exe") == 0)
-				{
-					if (!TerminateProcess(handle, NULL))
-					{
-						ThrowMessage("ERROR: Couldn't terminate ExitLagPmService.exe!");
+                bHasClosedOnce = true;
 
-						CloseHandle(handle);
+                CloseHandle(hProcess);
+                CloseHandle(snapshot);
 
-						return false;
-					}
-					
-					bHasClosedOnce = true;
+                DebugMessage("Terminated ExitLagPmService.exe.");
+                return true;
+            }
+            else
+            {
+                DebugMessage("Couldn't aquire handle to target process");
+            }
+        }
+    } while (Process32NextW(snapshot, &procEntry));
 
-					CloseHandle(handle);
+    DebugMessage("Couldn't locate ExitLagPmService.exe.");
 
-					return true;
-				}
-			}
-			
-			CloseHandle(handle);
-		}
-	}
+    CloseHandle(snapshot);
 
 	return false;
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 {
-	/* Close FuckPresentMon after closing the PresentMon service 1 time, good if you never relaunch ExitLag before computer shutdown */
-	if (strcmp(pCmdLine, "--autoclose") == 0 /* || IsDebuggerPresent() */ )
+	/* Close FuckPresentMon after closing the PresentMon service 1 time */
+	if (strcmp(pCmdLine, "--autoclose") == 0)
 	{
 		bAutoClose = true;
-		ThrowMessage("Running with autoclose flag or debugger present");
+		DebugMessage("Running with autoclose flag or debugger present");
 	}
 
-	if (strcmp(pCmdLine, "--silent") == 0)
-		bSilentMode = true;
+	if (strcmp(pCmdLine, "--debug") == 0)
+		bDebugMode = true;
 
 	/* Give ExitLag and the gay ahh service some time to start(when running this on startup) */ 
 	std::this_thread::sleep_for(5s);
@@ -93,12 +85,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine,
 	while (true)
 	{
 		if (ClosePmService())
-			ThrowMessage("Terminated ExitLagPmService.exe");
+			DebugMessage("Terminated ExitLagPmService.exe");
 
 		if (bAutoClose && bHasClosedOnce)
 			break;
 
-		std::this_thread::sleep_for(5s);
+		std::this_thread::sleep_for(3s);
 	}
 
 	return EXIT_SUCCESS;
